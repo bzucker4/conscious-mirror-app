@@ -2,8 +2,14 @@
 
 export const FREE_LIMIT = 3;
 export const FREE_PERIOD_DAYS = 30;
-// Returned by the server in `remaining` when the user is on the paid plan.
-export const UNLIMITED_REMAINING = -1;
+// Fair-use cap for paid members, per 30-day window. Keeps model costs bounded.
+export const PAID_LIMIT = 60;
+
+export const PRICES = {
+  monthly: { label: "Monthly", display: "$12 / month" },
+  yearly: { label: "Yearly", display: "$79 / year", note: "Save 45%" },
+} as const;
+export type Plan = keyof typeof PRICES;
 
 export const MAX_FIELD_CHARS = 2000;
 export const MAX_TOTAL_CHARS = 6000;
@@ -57,11 +63,11 @@ const MS_PER_DAY = HOURS_PER_DAY * MINUTES_PER_HOUR * SECONDS_PER_MINUTE * MS_PE
 
 export type UsageRow = { count: number | null; period_start: string | null; is_paid: boolean | null };
 
-// Reflections left in the current window, or null when the user is on the paid plan.
-export function remainingReflections(usage: UsageRow | null, now: Date = new Date()): number | null {
-  if (usage?.is_paid) return null;
-  if (!usage?.period_start) return FREE_LIMIT;
+// Reflections left in the current window, for the user's plan.
+export function remainingReflections(usage: UsageRow | null, now: Date = new Date()): number {
+  const cap = usage?.is_paid ? PAID_LIMIT : FREE_LIMIT;
+  if (!usage?.period_start) return cap;
   const windowEnds = new Date(usage.period_start).getTime() + FREE_PERIOD_DAYS * MS_PER_DAY;
-  if (now.getTime() >= windowEnds) return FREE_LIMIT;
-  return Math.max(FREE_LIMIT - (usage.count ?? 0), 0);
+  if (now.getTime() >= windowEnds) return cap;
+  return Math.max(cap - (usage.count ?? 0), 0);
 }

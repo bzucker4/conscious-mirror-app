@@ -44,16 +44,21 @@ drop policy if exists "Users can view own usage" on usage;
 create policy "Users can view own usage"
   on usage for select using (auth.uid() = user_id);
 
+alter table usage add column if not exists stripe_customer_id text;
+
 -- Atomically spend one reflection. Resets the 30-day window when it has lapsed.
--- remaining = -1 means unlimited (paid).
-create or replace function consume_reflection(p_user uuid, p_limit int)
-returns table (allowed boolean, remaining int)
+-- Free users get p_limit per window; paid users get p_paid_limit (a fair-use cap).
+-- Replaces the earlier two-argument version.
+drop function if exists consume_reflection(uuid, int);
+create or replace function consume_reflection(p_user uuid, p_limit int, p_paid_limit int)
+returns table (allowed boolean, remaining int, paid boolean)
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
   u usage%rowtype;
+  cap int;
 begin
   insert into usage (user_id) values (p_user) on conflict (user_id) do nothing;
 
@@ -64,19 +69,15 @@ begin
     u.count := 0;
   end if;
 
-  if u.is_paid then
-    update usage set count = count + 1 where user_id = p_user;
-    return query select true, -1;
-    return;
-  end if;
+  cap := case when u.is_paid then p_paid_limit else p_limit end;
 
-  if u.count >= p_limit then
-    return query select false, 0;
+  if u.count >= cap then
+    return query select false, 0, coalesce(u.is_paid, false);
     return;
   end if;
 
   update usage set count = count + 1 where user_id = p_user;
-  return query select true, p_limit - u.count - 1;
+  return query select true, cap - u.count - 1, coalesce(u.is_paid, false);
 end;
 $$;
 
@@ -91,7 +92,7 @@ as $$
 $$;
 
 -- Only the server (service role) may call these.
-revoke all on function consume_reflection(uuid, int) from public, anon, authenticated;
+revoke all on function consume_reflection(uuid, int, int) from public, anon, authenticated;
 revoke all on function refund_reflection(uuid) from public, anon, authenticated;
-grant execute on function consume_reflection(uuid, int) to service_role;
+grant execute on function consume_reflection(uuid, int, int) to service_role;
 grant execute on function refund_reflection(uuid) to service_role;

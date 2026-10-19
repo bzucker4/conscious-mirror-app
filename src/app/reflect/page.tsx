@@ -3,18 +3,20 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { QUESTIONS, UNLIMITED_REMAINING, type Answers } from "@/lib/config";
-import { getAccessToken, startCheckout } from "@/lib/session";
+import UpgradeOptions from "@/components/UpgradeOptions";
+import { PAID_LIMIT, QUESTIONS, type Answers } from "@/lib/config";
+import { getAccessToken } from "@/lib/session";
 
 type View =
   | { kind: "form" }
   | { kind: "sending" }
-  | { kind: "result"; reflection: string; remaining: number }
+  | { kind: "result"; reflection: string; remaining: number; paid: boolean }
   | { kind: "notice"; title: string; message: string; upgrade?: boolean };
 
 type ReflectReply = {
   reflection?: string;
   remaining?: number;
+  paid?: boolean;
   crisis?: boolean;
   message?: string;
   error?: string;
@@ -28,9 +30,11 @@ function readReply(data: unknown): ReflectReply {
   return data as ReflectReply;
 }
 
-function remainingLabel(remaining: number): string {
-  if (remaining === UNLIMITED_REMAINING) return "Unlimited reflections on your plan.";
-  return `${remaining} free ${remaining === 1 ? "reflection" : "reflections"} left in this period.`;
+function remainingLabel(remaining: number, paid: boolean): string {
+  const noun = remaining === 1 ? "reflection" : "reflections";
+  return paid
+    ? `${remaining} of ${PAID_LIMIT} reflections left in this period.`
+    : `${remaining} free ${noun} left in this period.`;
 }
 
 export default function ReflectPage() {
@@ -77,9 +81,14 @@ export default function ReflectPage() {
       if (data.crisis) {
         setView({ kind: "notice", title: "Please take care of yourself first", message: data.message ?? "" });
       } else if (data.reflection) {
-        setView({ kind: "result", reflection: data.reflection, remaining: data.remaining ?? 0 });
+        setView({ kind: "result", reflection: data.reflection, remaining: data.remaining ?? 0, paid: data.paid ?? false });
       } else if (data.error === "limit") {
-        setView({ kind: "notice", title: "You have reached your free limit", message: data.message ?? "", upgrade: true });
+        setView({
+          kind: "notice",
+          title: data.paid ? "You have reached this period's limit" : "You have reached your free limit",
+          message: data.message ?? "",
+          upgrade: !data.paid,
+        });
       } else {
         setError(data.error ?? "Something went wrong. Please try again.");
         setView({ kind: "form" });
@@ -105,14 +114,10 @@ export default function ReflectPage() {
         <h1 className="font-serif text-3xl mb-5">{view.title}</h1>
         <p className="whitespace-pre-wrap text-stone-700 leading-relaxed">{view.message}</p>
         {view.upgrade && (
-          <button
-            onClick={async () => setError((await startCheckout()) ?? "")}
-            className="mt-8 rounded-full bg-stone-900 text-white px-8 py-3"
-          >
-            Unlock unlimited reflections
-          </button>
+          <div className="mt-8">
+            <UpgradeOptions />
+          </div>
         )}
-        {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
         <div>
           <button onClick={reset} className="mt-6 text-sm text-stone-500 underline">
             Start over
@@ -129,7 +134,12 @@ export default function ReflectPage() {
         <div className="whitespace-pre-wrap leading-relaxed text-stone-800 rounded-2xl border border-stone-200 bg-white p-6">
           {view.reflection}
         </div>
-        <p className="mt-4 text-sm text-stone-500">{remainingLabel(view.remaining)}</p>
+        <p className="mt-4 text-sm text-stone-500">{remainingLabel(view.remaining, view.paid)}</p>
+        {!view.paid && view.remaining === 1 && (
+          <div className="mt-6">
+            <UpgradeOptions />
+          </div>
+        )}
         <p className="mt-2 text-xs text-stone-400">
           A reflection tool, not therapy or advice. You decide what, if anything, is useful.
         </p>

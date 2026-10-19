@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { FREE_LIMIT } from "@/lib/config";
+import { FREE_LIMIT, PAID_LIMIT } from "@/lib/config";
 import { buildUserMessage, getModelConfig, getSystemPrompt } from "@/lib/mirror";
 import { CRISIS_MESSAGE, detectCrisis } from "@/lib/safety";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -35,14 +35,14 @@ function bearerToken(req: Request): string | null {
   return header.slice(BEARER_PREFIX.length) || null;
 }
 
-type Quota = { allowed: boolean; remaining: number };
+type Quota = { allowed: boolean; remaining: number; paid: boolean };
 
 function readQuota(data: unknown): Quota | null {
   const row = Array.isArray(data) ? data[0] : data;
   if (typeof row !== "object" || row === null) return null;
-  const { allowed, remaining } = row as { allowed?: unknown; remaining?: unknown };
-  if (typeof allowed !== "boolean" || typeof remaining !== "number") return null;
-  return { allowed, remaining };
+  const { allowed, remaining, paid } = row as { allowed?: unknown; remaining?: unknown; paid?: unknown };
+  if (typeof allowed !== "boolean" || typeof remaining !== "number" || typeof paid !== "boolean") return null;
+  return { allowed, remaining, paid };
 }
 
 export async function POST(req: Request) {
@@ -71,18 +71,15 @@ export async function POST(req: Request) {
   const { data: quotaData, error: quotaError } = await admin.rpc("consume_reflection", {
     p_user: userId,
     p_limit: FREE_LIMIT,
+    p_paid_limit: PAID_LIMIT,
   });
   const quota = quotaError ? null : readQuota(quotaData);
   if (!quota) return reply({ error: "Usage check failed. Please try again." }, STATUS.unavailable);
   if (!quota.allowed) {
-    return reply(
-      {
-        error: "limit",
-        message: `You have used your ${FREE_LIMIT} free reflections for this 30-day period.`,
-        remaining: 0,
-      },
-      STATUS.limitReached,
-    );
+    const message = quota.paid
+      ? `You have used all ${PAID_LIMIT} reflections for this 30-day period. They renew automatically.`
+      : `You have used your ${FREE_LIMIT} free reflections for this 30-day period.`;
+    return reply({ error: "limit", message, remaining: 0, paid: quota.paid }, STATUS.limitReached);
   }
 
   try {
@@ -109,7 +106,7 @@ export async function POST(req: Request) {
     // Never log what the person wrote; log only that saving failed.
     if (saveError) console.error("reflect: could not save reflection:", saveError.message);
 
-    return reply({ reflection, remaining: quota.remaining });
+    return reply({ reflection, remaining: quota.remaining, paid: quota.paid });
   } catch (err) {
     await admin.rpc("refund_reflection", { p_user: userId });
     console.error("reflect: model call failed:", err instanceof Error ? err.message : "unknown");

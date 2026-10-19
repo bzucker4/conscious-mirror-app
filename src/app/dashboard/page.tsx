@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { FREE_LIMIT, remainingReflections, type UsageRow } from "@/lib/config";
+import UpgradeOptions from "@/components/UpgradeOptions";
+import { FREE_LIMIT, PAID_LIMIT, remainingReflections, type UsageRow } from "@/lib/config";
+import { openBilling } from "@/lib/session";
 import { getSupabase } from "@/lib/supabase";
 
 type SavedReflection = {
@@ -18,7 +20,10 @@ const HISTORY_LIMIT = 50;
 export default function DashboardPage() {
   const router = useRouter();
   const [items, setItems] = useState<SavedReflection[]>([]);
-  const [remaining, setRemaining] = useState<number | null>(FREE_LIMIT);
+  const [remaining, setRemaining] = useState<number>(FREE_LIMIT);
+  const [isPaid, setIsPaid] = useState(false);
+  const [justPaid, setJustPaid] = useState(false);
+  const [billingError, setBillingError] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "unconfigured">("loading");
 
@@ -43,7 +48,10 @@ export default function DashboardPage() {
         supabase.from("usage").select("count, period_start, is_paid").maybeSingle(),
       ]);
       setItems((history.data ?? []) as SavedReflection[]);
-      setRemaining(remainingReflections((usage.data ?? null) as UsageRow | null));
+      const usageRow = (usage.data ?? null) as UsageRow | null;
+      setRemaining(remainingReflections(usageRow));
+      setIsPaid(Boolean(usageRow?.is_paid));
+      setJustPaid(new URLSearchParams(window.location.search).get("paid") === "1");
       setStatus("ready");
     };
     void load();
@@ -75,8 +83,8 @@ export default function DashboardPage() {
         <div>
           <h1 className="font-serif text-3xl">Your reflections</h1>
           <p className="text-sm text-stone-500 mt-1">
-            {remaining === null
-              ? "Unlimited reflections on your plan."
+            {isPaid
+              ? `${remaining} of ${PAID_LIMIT} reflections left in this period.`
               : `${remaining} of ${FREE_LIMIT} free reflections left in this period.`}
           </p>
         </div>
@@ -84,6 +92,17 @@ export default function DashboardPage() {
           New reflection
         </Link>
       </div>
+
+      {justPaid && isPaid && (
+        <p className="mb-6 rounded-xl bg-stone-100 p-4 text-sm text-stone-700">
+          Thank you. Your membership is active.
+        </p>
+      )}
+      {status === "ready" && !isPaid && (
+        <div className="mb-8">
+          <UpgradeOptions />
+        </div>
+      )}
 
       {status === "loading" && <p className="text-stone-500">Loading…</p>}
       {status === "ready" && !items.length && (
@@ -112,7 +131,19 @@ export default function DashboardPage() {
         ))}
       </ul>
 
-      <button onClick={signOut} className="mt-10 text-sm text-stone-500 underline">
+      {isPaid && (
+        <div className="mt-10">
+          <button
+            onClick={async () => setBillingError((await openBilling()) ?? "")}
+            className="text-sm text-stone-600 underline"
+          >
+            Manage or cancel membership
+          </button>
+          {billingError && <p className="mt-2 text-sm text-red-700">{billingError}</p>}
+        </div>
+      )}
+
+      <button onClick={signOut} className="mt-6 block text-sm text-stone-500 underline">
         Sign out
       </button>
     </main>

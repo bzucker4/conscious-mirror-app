@@ -9,3 +9,9 @@ export function getStripe(): Stripe | null {
 export function siteUrl(req: Request): string {
   return process.env.NEXT_PUBLIC_SITE_URL || new URL(req.url).origin;
 }
+
+export function priceIdFor(plan: string): string | null {
+  if (plan === "monthly") return process.env.STRIPE_PRICE_ID_MONTHLY || null;
+  if (plan === "yearly") return process.env.STRIPE_PRICE_ID_YEARLY || null;
+  return null;
+}
