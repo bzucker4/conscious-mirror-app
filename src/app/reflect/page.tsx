@@ -4,13 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { QUESTIONS, UNLIMITED_REMAINING, type Answers } from "@/lib/config";
-import { getAccessToken } from "@/lib/session";
+import { getAccessToken, startCheckout } from "@/lib/session";
 
 type View =
   | { kind: "form" }
   | { kind: "sending" }
   | { kind: "result"; reflection: string; remaining: number }
-  | { kind: "notice"; title: string; message: string };
+  | { kind: "notice"; title: string; message: string; upgrade?: boolean };
 
 type ReflectReply = {
   reflection?: string;
@@ -79,7 +79,7 @@ export default function ReflectPage() {
       } else if (data.reflection) {
         setView({ kind: "result", reflection: data.reflection, remaining: data.remaining ?? 0 });
       } else if (data.error === "limit") {
-        setView({ kind: "notice", title: "You have reached your free limit", message: data.message ?? "" });
+        setView({ kind: "notice", title: "You have reached your free limit", message: data.message ?? "", upgrade: true });
       } else {
         setError(data.error ?? "Something went wrong. Please try again.");
         setView({ kind: "form" });
@@ -104,9 +104,20 @@ export default function ReflectPage() {
       <main className="max-w-xl mx-auto px-6 py-16">
         <h1 className="font-serif text-3xl mb-5">{view.title}</h1>
         <p className="whitespace-pre-wrap text-stone-700 leading-relaxed">{view.message}</p>
-        <button onClick={reset} className="mt-8 text-sm text-stone-500 underline">
-          Start over
-        </button>
+        {view.upgrade && (
+          <button
+            onClick={async () => setError((await startCheckout()) ?? "")}
+            className="mt-8 rounded-full bg-stone-900 text-white px-8 py-3"
+          >
+            Unlock unlimited reflections
+          </button>
+        )}
+        {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
+        <div>
+          <button onClick={reset} className="mt-6 text-sm text-stone-500 underline">
+            Start over
+          </button>
+        </div>
       </main>
     );
   }
